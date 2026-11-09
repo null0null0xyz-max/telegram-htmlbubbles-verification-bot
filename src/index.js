@@ -1,6 +1,7 @@
 import express from 'express';
 import sharp from 'sharp';
 import crypto from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 
 const app = express();
 app.use(express.json({ limit: '256kb' }));
@@ -47,7 +48,7 @@ async function fetchImageData(url) {
   const response = await fetch(url, { redirect: 'follow' });
   if (!response.ok) throw new Error(`Image download failed: ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
-  const image = await sharp(bytes).rotate().resize(240, 240, { fit: 'cover' }).jpeg({ quality: 35, mozjpeg: true }).toBuffer();
+  const image = await sharp(bytes).rotate().resize(96, 96, { fit: 'cover' }).jpeg({ quality: 20, mozjpeg: true }).toBuffer();
   return `data:image/jpeg;base64,${image.toString('base64')}`;
 }
 
@@ -63,12 +64,16 @@ const selected=new Set();document.querySelectorAll('.tile').forEach((el)=>el.add
 async function sendChallenge(chatId) {
   const challenge = CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
   const imageData = await fetchImageData(challenge.image);
+  const html = widgetHtml({ title: challenge.title, imageData });
+  const compressedBytes = deflateSync(Buffer.from(html), { level: 9 }).length;
+  console.log(`Widget payload: ${Buffer.byteLength(html)} bytes HTML, ${compressedBytes} bytes zlib`);
+  if (compressedBytes > 4096) throw new Error(`Widget payload is ${compressedBytes} compressed bytes; Telegram limit is 4096`);
   const sessionId = crypto.randomUUID();
   sessions.set(sessionId, { chatId, expected: challenge.expected, createdAt: Date.now() });
   // State is carried in chat_data; the widget itself remains fixed and offline.
   await telegram('sendWidget', {
     chat_id: chatId,
-    html: widgetHtml({ title: challenge.title, imageData }),
+    html,
     width: 360,
     height: 470,
     chat_data: JSON.stringify({ sessionId, status: 'pending' }),
