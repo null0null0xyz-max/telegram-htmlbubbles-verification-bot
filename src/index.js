@@ -47,28 +47,14 @@ async function fetchImageData(url) {
   const response = await fetch(url, { redirect: 'follow' });
   if (!response.ok) throw new Error(`Image download failed: ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
-  const image = sharp(bytes).rotate().resize(360, 360, { fit: 'cover' });
-  const width = 360;
-  const height = 360;
-  const tileWidth = Math.floor(width / 3);
-  const tileHeight = Math.floor(height / 3);
-  const tiles = [];
-  for (let row = 0; row < 3; row += 1) {
-    for (let col = 0; col < 3; col += 1) {
-      const tile = await image.clone()
-        .extract({ left: col * tileWidth, top: row * tileHeight, width: col === 2 ? width - col * tileWidth : tileWidth, height: row === 2 ? height - row * tileHeight : tileHeight })
-        .jpeg({ quality: 48, mozjpeg: true })
-        .toBuffer();
-      tiles.push(`data:image/jpeg;base64,${tile.toString('base64')}`);
-    }
-  }
-  return tiles;
+  const image = await sharp(bytes).rotate().resize(240, 240, { fit: 'cover' }).jpeg({ quality: 35, mozjpeg: true }).toBuffer();
+  return `data:image/jpeg;base64,${image.toString('base64')}`;
 }
 
-function widgetHtml({ title, tiles }) {
-  const tileMarkup = tiles.map((tile, index) => `<button class="tile" data-i="${index}" aria-label="Квадратик ${index + 1}"><img src="${tile}"/></button>`).join('');
+function widgetHtml({ title, imageData }) {
+  const tileMarkup = Array.from({ length: 9 }, (_, index) => `<button class="tile p${index}" data-i="${index}" aria-label="Квадратик ${index + 1}"></button>`).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-:root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;padding:12px;font:15px system-ui,sans-serif;color:var(--tg-theme-text-color,#222);background:var(--tg-theme-bg-color,#fff)}.head{font-weight:700;margin-bottom:8px}.hint{font-size:13px;opacity:.72;margin-bottom:10px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;max-width:330px}.tile{padding:0;border:2px solid transparent;border-radius:7px;overflow:hidden;background:#ddd;aspect-ratio:1;cursor:pointer}.tile.selected{border-color:#2481cc;box-shadow:0 0 0 2px #2481cc55}.tile img{display:block;width:100%;height:100%;object-fit:cover}.submit{margin-top:10px;border:0;border-radius:8px;padding:9px 14px;background:#2481cc;color:#fff;font-weight:700}.result{margin-top:8px;font-weight:600}
+:root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;padding:12px;font:15px system-ui,sans-serif;color:var(--tg-theme-text-color,#222);background:var(--tg-theme-bg-color,#fff)}.head{font-weight:700;margin-bottom:8px}.hint{font-size:13px;opacity:.72;margin-bottom:10px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;max-width:330px}.tile{padding:0;border:2px solid transparent;border-radius:7px;overflow:hidden;background-color:#ddd;background-image:url('${imageData}');background-size:300% 300%;background-repeat:no-repeat;aspect-ratio:1;cursor:pointer}.p0{background-position:0 0}.p1{background-position:50% 0}.p2{background-position:100% 0}.p3{background-position:0 50%}.p4{background-position:50% 50%}.p5{background-position:100% 50%}.p6{background-position:0 100%}.p7{background-position:50% 100%}.p8{background-position:100% 100%}.tile.selected{border-color:#2481cc;box-shadow:0 0 0 2px #2481cc55}.submit{margin-top:10px;border:0;border-radius:8px;padding:9px 14px;background:#2481cc;color:#fff;font-weight:700}.result{margin-top:8px;font-weight:600}
 </style></head><body><div class="head">Проверка: отметьте клетки с объектом «${escapeHtml(title)}»</div><div class="hint">Выберите один или несколько квадратиков и нажмите «Проверить».</div><div class="grid">${tileMarkup}</div><button class="submit" id="submit">Проверить</button><div class="result" id="result"></div><script>
 const selected=new Set();document.querySelectorAll('.tile').forEach((el)=>el.addEventListener('click',()=>{const i=Number(el.dataset.i);if(selected.has(i)){selected.delete(i);el.classList.remove('selected')}else{selected.add(i);el.classList.add('selected')}}));document.getElementById('submit').addEventListener('click',()=>{const result=document.getElementById('result');if(!window.TelegramWidget){result.textContent='Откройте этот виджет внутри Telegram.';return}if(!selected.size){result.textContent='Выберите хотя бы одну клетку.';return}TelegramWidget.request(JSON.stringify({selected:[...selected].sort((a,b)=>a-b)})).then((answer)=>{try{const data=JSON.parse(answer.result||'{}');result.textContent=data.ok?'Проверка пройдена.':'Есть ошибка. Попробуйте ещё раз.';if(data.ok)document.getElementById('submit').disabled=true}catch{result.textContent='Ответ получен.'}}).catch((error)=>{result.textContent='Не удалось отправить ответ: '+error.code})});if(window.TelegramWidget)TelegramWidget.ready();
 </script></body></html>`;
@@ -76,13 +62,13 @@ const selected=new Set();document.querySelectorAll('.tile').forEach((el)=>el.add
 
 async function sendChallenge(chatId) {
   const challenge = CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
-  const tiles = await fetchImageData(challenge.image);
+  const imageData = await fetchImageData(challenge.image);
   const sessionId = crypto.randomUUID();
   sessions.set(sessionId, { chatId, expected: challenge.expected, createdAt: Date.now() });
   // State is carried in chat_data; the widget itself remains fixed and offline.
   await telegram('sendWidget', {
     chat_id: chatId,
-    html: widgetHtml({ title: challenge.title, tiles }),
+    html: widgetHtml({ title: challenge.title, imageData }),
     width: 360,
     height: 470,
     chat_data: JSON.stringify({ sessionId, status: 'pending' }),
