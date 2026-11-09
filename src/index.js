@@ -48,9 +48,8 @@ async function fetchImageData(url) {
   if (!response.ok) throw new Error(`Image download failed: ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
   const image = sharp(bytes).rotate().resize(360, 360, { fit: 'cover' });
-  const metadata = await image.metadata();
-  const width = metadata.width || 360;
-  const height = metadata.height || 360;
+  const width = 360;
+  const height = 360;
   const tileWidth = Math.floor(width / 3);
   const tileHeight = Math.floor(height / 3);
   const tiles = [];
